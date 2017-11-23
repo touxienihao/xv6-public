@@ -144,13 +144,25 @@ setupkvm(void)
     {
         panic("PHYSTOP too high");
     }
-    for (k = kmap; k < &kmap[NELEM(kmap)]; k++)
-        if (mappages(pgdir, k->virt, k->phys_end - k->phys_start,
-                     (uint)k->phys_start, k->perm) < 0)
+
+    if (!kpgdir)
+    {
+        for (k = kmap; k < &kmap[NELEM(kmap)]; k++)
         {
-            freevm(pgdir);
-            return 0;
+            if (mappages(pgdir, k->virt, k->phys_end - k->phys_start,
+                (uint)k->phys_start, k->perm) < 0)
+            {
+                freevm(pgdir);
+                return 0;
+            }
         }
+    }
+    else
+    {
+        // All processes use same kernel part page table.
+        memmove(pgdir, kpgdir, PGSIZE);
+    }
+
     return pgdir;
 }
 
@@ -337,13 +349,18 @@ void
 freevm(pde_t *pgdir)
 {
     uint i;
+    uint k;
 
     if (pgdir == 0)
     {
         panic("freevm: no pgdir");
     }
+    
     deallocuvm(pgdir, KERNBASE, 0);
-    for (i = 0; i < NPDENTRIES; i++)
+
+    // Only free user part, not kernel part.
+    k = NPDENTRIES / 2; 
+    for (i = 0; i < k; i++)
     {
         if (pgdir[i] & PTE_P)
         {
@@ -351,6 +368,7 @@ freevm(pde_t *pgdir)
             kfree(v);
         }
     }
+    
     kfree((char*)pgdir);
 }
 
